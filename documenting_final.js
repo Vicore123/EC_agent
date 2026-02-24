@@ -49,8 +49,23 @@ const openai = new OpenAI({
 
       for (let msg of mensagens) {
 
-        const dataObj = new Date(msg.timestamp * 1000);
+        // 🚫 Ignorar mensagens de sistema
+        const tiposIgnorados = [
+          'e2e_notification',
+          'notification',
+          'protocol',
+          'ciphertext',
+          'revoked'
+        ];
 
+        if (tiposIgnorados.includes(msg.type)) continue;
+
+        // Ignorar mensagens vazias reais
+        if (!msg.body || msg.body.trim() === "") continue;
+
+        if (!msg.fromMe) houveResposta = true;
+
+        const dataObj = new Date(msg.timestamp * 1000);
         const hora = dataObj.toLocaleTimeString('pt-BR', {
           hour: '2-digit',
           minute: '2-digit',
@@ -60,17 +75,10 @@ const openai = new OpenAI({
         const data = dataObj.toLocaleDateString('en-US');
         const autor = msg.fromMe ? meuNome : numero;
 
-        if (!msg.fromMe) {
-          houveResposta = true;
-        }
-
-        let conteudo = msg.body;
-        if (!conteudo || conteudo.trim() === "") {
-          conteudo = `[${msg.type.toUpperCase()}]`;
-        }
-
-        conversa += `[${hora}, ${data}] ${autor}: ${conteudo}\n`;
+        conversa += `[${hora}, ${data}] ${autor}: ${msg.body}\n`;
       }
+
+      if (!conversa) return { conversa: null, houveResposta: false };
 
       return { conversa, houveResposta };
 
@@ -82,28 +90,59 @@ const openai = new OpenAI({
 
   async function gerarResumo(conversa) {
 
-    try {
+    const resposta = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You generate very short CRM summaries in English (max 15 words)."
+        },
+        {
+          role: "user",
+          content: conversa.substring(0, 15000)
+        }
+      ]
+    });
 
-      const resposta = await openai.chat.completions.create({
-        model: "gpt-5-mini",
-        messages: [
-          {
-            role: "system",
-            content: "You are a CRM assistant (Vinicius Alves Enrollment Counsellor) that generates very short, objective summaries in English only."
-          },
-          {
-            role: "user",
-            content: `Summarize the following WhatsApp conversation in English in a maximum of 15 words. Focus only on the main purpose of the conversation. Example: "Student unable to access portal and requested password reset."\n\n${conversa.substring(0, 15000)}`
-          }
-        ]
-      });
+    return resposta.choices[0].message.content.trim();
+  }
 
-      return resposta.choices[0].message.content.trim();
+  async function classificarResposta(conversa, houveResposta) {
 
-    } catch (err) {
-      console.log("Erro ao gerar resumo:", err.message);
-      return "Summary not available.";
-    }
+    if (!houveResposta) return 0;
+
+    const resposta = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [
+        {
+          role: "system",
+          content: `
+Return ONLY ONE NUMBER from this list:
+
+1 No longer interested
+2 Requested more information
+3 Learned more about EnglishConnect
+4 Interested but scheduling conflict
+5 Waiting financial information
+6 Needed guidance with application
+7 Technical issue
+8 Completed application successfully
+9 Returning student waiting provision
+10 Plans to register future term
+13 Successfully registered
+
+Return only the number.
+`
+        },
+        {
+          role: "user",
+          content: conversa.substring(0, 15000)
+        }
+      ]
+    });
+
+    const numero = resposta.choices[0].message.content.trim();
+    return parseInt(numero) || 0;
   }
 
   // ================= PUPPETEER =================
@@ -115,22 +154,17 @@ const openai = new OpenAI({
 
   const page = await browser.newPage();
 
-  const USERNAME = process.env.EC_USERNAME;
-  const PASSWORD = process.env.EC_PASSWORD;
-
   await page.goto('https://enrollmentcounselor.byupathway.edu/Actions-1/', {
     waitUntil: 'networkidle2'
   });
 
-  await page.type('#Username', USERNAME);
-  await page.type('#PasswordValue', PASSWORD);
+  await page.type('#Username', process.env.EC_USERNAME);
+  await page.type('#PasswordValue', process.env.EC_PASSWORD);
 
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
     page.click('#submit-signin-local')
   ]);
-
-  console.log("Login realizado!");
 
   await page.waitForSelector('tr[data-entity="task"]');
 
@@ -139,14 +173,9 @@ const openai = new OpenAI({
     rows => rows.length
   );
 
-  console.log(`Encontrados ${total} itens`);
-
   for (let i = 0; i < total; i++) {
 
-    console.log(`\nProcessando ${i + 1}/${total}`);
-
     const selector = `tr[data-entity="task"]:nth-of-type(${i + 1})`;
-
     await page.waitForSelector(selector);
     const row = await page.$(selector);
 
@@ -158,30 +187,19 @@ const openai = new OpenAI({
       }
     );
 
-    console.log("Telefone:", phone);
-
     if (!phone) continue;
 
     const { conversa, houveResposta } = await buscarConversa(phone);
-
-    if (!conversa) {
-      console.log("Sem conversa. Pulando.");
-      continue;
-    }
+    if (!conversa) continue;
 
     let textoFinal = conversa;
 
     if (houveResposta) {
-      console.log("Gerando resumo...");
       const resumo = await gerarResumo(conversa);
-
-      textoFinal =
-`${resumo}
-
-${conversa}`;
-    } else {
-      console.log("Estudante não respondeu. Resumo não gerado.");
+      textoFinal = `${resumo}\n\n${conversa}`;
     }
+
+    const classificacao = await classificarResposta(conversa, houveResposta);
 
     const menuButton = await row.$('button[data-toggle="dropdown"]');
     await menuButton.click();
@@ -195,19 +213,14 @@ ${conversa}`;
     let formFrame = null;
 
     for (const frame of frames) {
-      try {
-        const el = await frame.$('#pw_note');
-        if (el) {
-          formFrame = frame;
-          break;
-        }
-      } catch {}
+      const el = await frame.$('#pw_note');
+      if (el) {
+        formFrame = frame;
+        break;
+      }
     }
 
-    if (!formFrame) {
-      console.log("Textarea não encontrado.");
-      continue;
-    }
+    if (!formFrame) continue;
 
     // Inserir texto
     await formFrame.evaluate((texto) => {
@@ -216,43 +229,36 @@ ${conversa}`;
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
     }, textoFinal.substring(0, 39000));
 
-    console.log("Texto inserido!");
-
-    // ================= DEFINIR CONTACT METHOD =================
-
-    await formFrame.waitForSelector('#pw_communicationmethod', { timeout: 10000 });
-
+    // Definir Contact Method = WhatsApp
     await formFrame.evaluate(() => {
-
       const select = document.querySelector('#pw_communicationmethod');
-
       if (select) {
-        select.value = "111110000"; // Chat (WhatsApp, Messenger, etc.)
+        select.value = "111110000";
         select.dispatchEvent(new Event('change', { bubbles: true }));
-        select.dispatchEvent(new Event('input', { bubbles: true }));
       }
-
     });
 
-    console.log("Contact Method definido como WhatsApp!");
+    // Definir Student Response Key
+    await formFrame.evaluate((valor) => {
+      const input = document.querySelector('#pw_studentresponsekey');
+      if (input) {
+        input.value = valor;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }, classificacao);
 
-    // ================= SALVAR =================
-
-    await formFrame.waitForSelector('#UpdateButton', { timeout: 15000 });
-
+    // Salvar
     await formFrame.evaluate(() => {
       const btn = document.querySelector('#UpdateButton');
       if (btn) btn.click();
     });
 
-    console.log("Botão Save acionado!");
-
-    await delay(5000);
-
-    console.log("Salvo com sucesso!");
-    await delay(1500);
+    await delay(4000);
   }
 
-  console.log("\nTodos os itens processados!");
+  console.log("Finalizado. Fechando navegador...");
+
+  await browser.close();
+  process.exit();
 
 })();
