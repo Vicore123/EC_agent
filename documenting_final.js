@@ -1,10 +1,15 @@
 require('dotenv').config();
 const puppeteer = require('puppeteer');
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const OpenAI = require("openai");
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 (async () => {
 
@@ -54,7 +59,12 @@ function delay(ms) {
         const data = dataObj.toLocaleDateString('en-US');
         const autor = msg.fromMe ? meuNome : numero;
 
-        conversa += `[${hora}, ${data}] ${autor}: ${msg.body}\n`;
+        let conteudo = msg.body;
+        if (!conteudo || conteudo.trim() === "") {
+          conteudo = `[${msg.type.toUpperCase()}]`;
+        }
+
+        conversa += `[${hora}, ${data}] ${autor}: ${conteudo}\n`;
       }
 
       return conversa;
@@ -62,6 +72,32 @@ function delay(ms) {
     } catch (err) {
       console.log("Erro ao buscar conversa:", err.message);
       return "Erro ao buscar conversa.";
+    }
+  }
+
+  async function gerarResumo(conversa) {
+
+    try {
+
+      const resposta = await openai.chat.completions.create({
+        model: "gpt-5-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a CRM assistant (Vinicius Alves Enrollment Counsellor) that generates very short, objective summaries in English only."
+          },
+          {
+            role: "user",
+            content: `Summarize the following WhatsApp conversation in English in a maximum of 15 words. Focus only on the main purpose of the conversation. exemple.: "This student was trying to access the student protal, but wasn't able to"\n\n${conversa.substring(0, 15000)}`
+          }
+        ]
+      });
+
+      return resposta.choices[0].message.content.trim();
+
+    } catch (err) {
+      console.log("Erro ao gerar resumo:", err.message);
+      return "Summary not available.";
     }
   }
 
@@ -123,13 +159,20 @@ function delay(ms) {
 
     const conversa = await buscarConversa(phone);
 
+    console.log("Gerando resumo...");
+    const resumo = await gerarResumo(conversa);
+
+    const textoFinal =
+`${resumo}
+
+${conversa}`;
+
     const menuButton = await row.$('button[data-toggle="dropdown"]');
     await menuButton.click();
     await delay(800);
 
     const viewDetails = await row.$('a.details-link.launch-modal');
     await viewDetails.click();
-
     await delay(2000);
 
     const frames = page.frames();
@@ -154,9 +197,9 @@ function delay(ms) {
       const textarea = document.querySelector('#pw_note');
       textarea.value = texto;
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    }, conversa.substring(0, 39000));
+    }, textoFinal.substring(0, 39000));
 
-    console.log("Conversa inserida!");
+    console.log("Resumo + conversa inseridos!");
 
     await formFrame.waitForSelector('#UpdateButton', { timeout: 15000 });
 
@@ -169,8 +212,7 @@ function delay(ms) {
 
     await delay(5000);
 
-    console.log("Salvo (aguardado postback).");
-
+    console.log("Salvo com sucesso!");
     await delay(1500);
   }
 
