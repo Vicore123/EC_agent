@@ -37,14 +37,15 @@ const openai = new OpenAI({
     try {
 
       const numberId = await waClient.getNumberId(numero);
-      if (!numberId) return "Número não encontrado no WhatsApp.";
+      if (!numberId) return { conversa: null, houveResposta: false };
 
       const chat = await waClient.getChatById(numberId._serialized);
       const mensagens = await chat.fetchMessages({ limit: 2000 });
 
-      if (!mensagens.length) return "Conversa vazia.";
+      if (!mensagens.length) return { conversa: null, houveResposta: false };
 
       let conversa = "";
+      let houveResposta = false;
 
       for (let msg of mensagens) {
 
@@ -59,6 +60,11 @@ const openai = new OpenAI({
         const data = dataObj.toLocaleDateString('en-US');
         const autor = msg.fromMe ? meuNome : numero;
 
+        // ✅ Detecta se houve resposta do estudante
+        if (!msg.fromMe) {
+          houveResposta = true;
+        }
+
         let conteudo = msg.body;
         if (!conteudo || conteudo.trim() === "") {
           conteudo = `[${msg.type.toUpperCase()}]`;
@@ -67,11 +73,11 @@ const openai = new OpenAI({
         conversa += `[${hora}, ${data}] ${autor}: ${conteudo}\n`;
       }
 
-      return conversa;
+      return { conversa, houveResposta };
 
     } catch (err) {
       console.log("Erro ao buscar conversa:", err.message);
-      return "Erro ao buscar conversa.";
+      return { conversa: null, houveResposta: false };
     }
   }
 
@@ -88,7 +94,7 @@ const openai = new OpenAI({
           },
           {
             role: "user",
-            content: `Summarize the following WhatsApp conversation in English in a maximum of 15 words. Focus only on the main purpose of the conversation. exemple.: "This student was trying to access the student protal, but wasn't able to"\n\n${conversa.substring(0, 15000)}`
+            content: `Summarize the following WhatsApp conversation in English in a maximum of 15 words. Focus only on the main purpose of the conversation. exemple.: "This student was trying to access the student portal, but wasn't able to"\n\n${conversa.substring(0, 15000)}`
           }
         ]
       });
@@ -157,15 +163,26 @@ const openai = new OpenAI({
 
     if (!phone) continue;
 
-    const conversa = await buscarConversa(phone);
+    const { conversa, houveResposta } = await buscarConversa(phone);
 
-    console.log("Gerando resumo...");
-    const resumo = await gerarResumo(conversa);
+    if (!conversa) {
+      console.log("Sem conversa. Pulando.");
+      continue;
+    }
 
-    const textoFinal =
+    let textoFinal = conversa;
+
+    if (houveResposta) {
+      console.log("Gerando resumo...");
+      const resumo = await gerarResumo(conversa);
+
+      textoFinal =
 `${resumo}
 
 ${conversa}`;
+    } else {
+      console.log("Estudante não respondeu. Resumo não gerado.");
+    }
 
     const menuButton = await row.$('button[data-toggle="dropdown"]');
     await menuButton.click();
@@ -199,7 +216,7 @@ ${conversa}`;
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
     }, textoFinal.substring(0, 39000));
 
-    console.log("Resumo + conversa inseridos!");
+    console.log("Texto inserido!");
 
     await formFrame.waitForSelector('#UpdateButton', { timeout: 15000 });
 
