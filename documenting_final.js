@@ -60,7 +60,6 @@ const openai = new OpenAI({
         const data = dataObj.toLocaleDateString('en-US');
         const autor = msg.fromMe ? meuNome : numero;
 
-        // ✅ Detecta se houve resposta do estudante
         if (!msg.fromMe) {
           houveResposta = true;
         }
@@ -94,7 +93,7 @@ const openai = new OpenAI({
           },
           {
             role: "user",
-            content: `Summarize the following WhatsApp conversation in English in a maximum of 15 words. Focus only on the main purpose of the conversation. exemple.: "This student was trying to access the student portal, but wasn't able to"\n\n${conversa.substring(0, 15000)}`
+            content: `Summarize the following WhatsApp conversation in English in a maximum of 15 words. Focus only on the main purpose of the conversation. Example: "Student unable to access portal and requested password reset."\n\n${conversa.substring(0, 15000)}`
           }
         ]
       });
@@ -210,6 +209,7 @@ ${conversa}`;
       continue;
     }
 
+    // Inserir texto
     await formFrame.evaluate((texto) => {
       const textarea = document.querySelector('#pw_note');
       textarea.value = texto;
@@ -217,6 +217,26 @@ ${conversa}`;
     }, textoFinal.substring(0, 39000));
 
     console.log("Texto inserido!");
+
+    // ================= DEFINIR CONTACT METHOD =================
+
+    await formFrame.waitForSelector('#pw_communicationmethod', { timeout: 10000 });
+
+    await formFrame.evaluate(() => {
+
+      const select = document.querySelector('#pw_communicationmethod');
+
+      if (select) {
+        select.value = "111110000"; // Chat (WhatsApp, Messenger, etc.)
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        select.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+
+    });
+
+    console.log("Contact Method definido como WhatsApp!");
+
+    // ================= SALVAR =================
 
     await formFrame.waitForSelector('#UpdateButton', { timeout: 15000 });
 
