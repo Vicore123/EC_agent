@@ -13,7 +13,7 @@ async function gerarResumo(conversa) {
       { role: "system", content: resumoSystemPrompt },
       {
         role: "user",
-        content: `Summarize the following WhatsApp conversation in English in a maximum of 15 words.\n\n${conversa.substring(0, 15000)}`
+        content: `Summarize the following WhatsApp conversation in English in a maximum of 20 words.\n\n${conversa.substring(0, 15000)}`
       }
     ]
   });
