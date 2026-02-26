@@ -13,9 +13,9 @@ You must return ONLY ONE NUMBER from this list:
 5 Waiting for financial assistance (e.g., tuition, financial aid, or payment details) (if the student is admited, its 8)
 6 Needed guidance with application (use this if the student is not admited yet)
 7 Technical issue
-8 Completed application successfully (use this if the student is admited and you're unsure)
+8 Completed application successfully (use this if the student has the admited first message and you're unsure)
 9 Returning student waiting provision
-10 Plans to register future term
+10 Plans to register future term (not this one)
 13 Successfully registered (holds solved is 8, not 13)
 
 Return only the number.
