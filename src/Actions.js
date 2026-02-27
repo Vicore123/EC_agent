@@ -17,6 +17,8 @@ function extrairTelefone(texto, campo) {
 
 (async () => {
 
+  console.log("🚀 Iniciando automação...\n");
+
   const waClient = await initWhatsApp();
   const { browser, page } = await initBrowser();
 
@@ -31,13 +33,11 @@ function extrairTelefone(texto, campo) {
       rows => rows.length
     );
 
-    console.log(`\n==============================`);
-    console.log(`Encontrados ${total} itens`);
-    console.log(`==============================\n`);
+    console.log(`📋 Encontrados ${total} itens nesta página\n`);
 
     for (let i = 0; i < total; i++) {
 
-      console.log(`Processando ${i + 1}/${total}`);
+      console.log(`➡️ Processando ${i + 1}/${total}`);
 
       const selector = `tr[data-entity="task"]:nth-of-type(${i + 1})`;
 
@@ -51,11 +51,11 @@ function extrairTelefone(texto, campo) {
       ).catch(() => null);
 
       if (!subject) {
-        console.log("Subject não encontrado.\n");
+        console.log("⚠️ Subject não encontrado.\n");
         continue;
       }
 
-      console.log("Subject:", subject);
+      console.log("📝 Subject:", subject);
 
       // ================= DESCRIPTION =================
 
@@ -65,17 +65,17 @@ function extrairTelefone(texto, campo) {
       ).catch(() => null);
 
       if (!description) {
-        console.log("Descrição não encontrada.\n");
+        console.log("⚠️ Descrição não encontrada.\n");
         continue;
       }
 
-      // ================= NOME DO ESTUDANTE =================
+      // ================= NOME =================
 
       let nome = await page.$eval(
         `${selector} td[data-attribute="regardingobjectid"]`,
         el => {
           const nomeCompleto = el.innerText.trim();
-          return nomeCompleto.split(/\s+/)[0]; // pega apenas o primeiro nome
+          return nomeCompleto.split(/\s+/)[0];
         }
       ).catch(() => null);
 
@@ -83,7 +83,7 @@ function extrairTelefone(texto, campo) {
         nome = "Student";
       }
 
-      console.log("Primeiro nome encontrado:", nome);
+      console.log("👤 Primeiro nome:", nome);
 
       // ================= TELEFONE =================
 
@@ -92,11 +92,11 @@ function extrairTelefone(texto, campo) {
         extrairTelefone(description, "WhatsApp");
 
       if (!telefone) {
-        console.log("Nenhum telefone válido encontrado.\n");
+        console.log("❌ Nenhum telefone válido encontrado.\n");
         continue;
       }
 
-      console.log("Telefone encontrado no site:", telefone);
+      console.log("📱 Telefone encontrado:", telefone);
 
       // ================= VERIFICAR WHATSAPP =================
 
@@ -105,28 +105,36 @@ function extrairTelefone(texto, campo) {
       try {
         numberId = await waClient.getNumberId(telefone);
       } catch (err) {
-        console.log("Erro ao verificar número no WhatsApp:", err.message);
+        console.log("❌ Erro ao verificar número no WhatsApp:", err.message);
         continue;
       }
 
       if (!numberId) {
-        console.log("Número NÃO existe no WhatsApp.\n");
+        console.log("❌ Número NÃO existe no WhatsApp.\n");
         continue;
       }
 
-      console.log("Número existe no WhatsApp.");
+      console.log("✅ Número existe no WhatsApp.");
 
       // ================= IDIOMA =================
 
       const isBrasil = telefone.startsWith("55");
       const idioma = isBrasil ? "PT" : "EN";
 
-      console.log("Idioma definido:", idioma);
+      console.log("🌎 Idioma definido:", idioma);
 
-      // ================= PROGRAMA (REQUEST INFO) =================
+      // ================= PROGRAMA (CORRIGIDO) =================
 
-      let programMatch = description.match(/Program Interest:\s*(.*)/);
-      let programName = programMatch ? programMatch[1].trim() : "";
+      let programName = "";
+
+      const programMatch = description.match(/Program Interest:\s*(.+)/);
+      if (programMatch) {
+        programName = programMatch[1]
+          .split(/\r?\n/)[0]   // pega só a primeira linha
+          .trim();
+      }
+
+      console.log("🎓 Programa identificado:", programName || "Não informado");
 
       let programaAdmit =
         subject === "EC3 Admit"
@@ -141,8 +149,6 @@ function extrairTelefone(texto, campo) {
         subject === "Application Start" ||
         subject === "Portuguese Application Start"
       ) {
-
-        console.log("Template usado: Application Start");
 
         if (idioma === "PT") {
 
@@ -167,65 +173,12 @@ If you have any questions or are having difficulty enrolling, I am here to help!
         }
       }
 
-      // ================= ADMIT =================
-
-      else if (
-        subject === "EC3 Admit" ||
-        subject === "PC Admit" ||
-        subject === "Portuguese PC Admit"
-      ) {
-
-        console.log("Template usado: Admit");
-
-        if (idioma === "PT") {
-
-          const linkBrasil = isBrasil
-            ? `\nA partir de 28 de Janeiro:
-✅ Siga este passo a passo para realizar a registração:
-https://help.byupathway.edu/pt-BR/knowledgebase/article/?kb=KA-03020&lang=pt`
-            : `\n✅ registre-se para as aulas`;
-
-          mensagem = `Bom dia ${nome}
-
-Meu nome é Vinicius Alves, sou estudante e conselheiro de matricula para os alunos da BYU-Pathway, gostaria de prestar meus parabéns por sua admissão no ${programaAdmit} da BYU-Pathway Worldwide! Estamos muito felizes em ter você conosco! Como conselheiro de matrícula, estou aqui para ajudar você a dar os próximos passos com sucesso no processo de matrícula.
-Aqui estão os próximos passos que você deve seguir para se registrar até o inicio das aulas dia 2 de Março:
-
-✅ Acesse o portal do estudante
-Visite portal.byupathway.edu e selecione "Student Portal".
-Escolha sua conta Microsoft @byupathway.edu.
-Caso não consiga selecioná-la, digite o e-mail exatamente como você recebeu.
-Entre utilizando as credenciais da sua conta da Igreja.
-
-✅ Resolva qualquer pendência (holds)
-✅ Escolha um grupo de reunião (gathering)
-${linkBrasil}
-
-Você não está sozinho! Se tiver dúvidas, travar em alguma etapa ou enfrentar qualquer problema, estou à disposição para ajudar. Vou continuar acompanhando para garantir que tudo siga no caminho certo.`;
-
-        } else {
-
-          mensagem = `Good morning ${nome}
-
-My name is Vinicius Alves, I am a student and Enrollment Counselor for BYU-Pathway. Congratulations on your admission to ${programaAdmit} at BYU-Pathway Worldwide!
-
-Here are your next steps:
-
-✅ Access the Student Portal at portal.byupathway.edu
-✅ Resolve any holds
-✅ Choose a gathering
-
-You are not alone! If you have any questions or face any problems, I am here to help.`;
-        }
-      }
-
       // ================= REQUEST INFO =================
 
       else if (
         subject === "EC Request Info Contact" ||
         subject === "Request Info Lead"
       ) {
-
-        console.log("Template usado: Request Info");
 
         if (idioma === "PT") {
 
@@ -251,7 +204,7 @@ If you have any questions, I am here to help!`;
       }
 
       else {
-        console.log("Subject não mapeado. Pulando.\n");
+        console.log("⏭️ Subject não mapeado. Pulando.\n");
         continue;
       }
 
@@ -259,13 +212,14 @@ If you have any questions, I am here to help!`;
 
       try {
         await waClient.sendMessage(numberId._serialized, mensagem);
-        console.log("Mensagem enviada com sucesso!\n");
+        console.log("📤 Mensagem enviada com sucesso!\n");
       } catch (err) {
-        console.log("Erro ao enviar mensagem:", err.message);
+        console.log("❌ Erro ao enviar mensagem:", err.message);
         continue;
       }
 
       const randomDelay = Math.floor(Math.random() * 5000) + 4000;
+      console.log(`⏳ Aguardando ${randomDelay}ms...\n`);
       await delay(randomDelay);
     }
 
@@ -274,7 +228,7 @@ If you have any questions, I am here to help!`;
     );
 
     if (nextExists) {
-      console.log("Indo para próxima página...\n");
+      console.log("➡️ Indo para próxima página...\n");
       await page.click('.entity-pager-next-link');
       await page.waitForSelector('tr[data-entity="task"]');
       await delay(1500);
@@ -283,7 +237,7 @@ If you have any questions, I am here to help!`;
     }
   }
 
-  console.log("Processamento concluído.");
+  console.log("🏁 Processamento concluído.");
   await browser.close();
   process.exit();
 
